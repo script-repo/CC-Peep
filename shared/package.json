@@ -1,0 +1,8 @@
+{
+  "name": "audio-agents-shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared presence + signaling protocol (ESM) for portal, client, and web-client",
+  "type": "module",
+  "main": "protocol.js"
+}
