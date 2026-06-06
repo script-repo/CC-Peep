@@ -89,12 +89,21 @@ function Install-NodePortable {
   $target = Join-Path $InstallDir "node"
 
   Write-Step "Downloading portable Node.js $NodeVersion ($arch)…"
-  Invoke-WebRequest -Uri $url -OutFile $zip
   if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+  Invoke-WebRequest -Uri $url -OutFile $zip
   Expand-Zip $zip $tmp
+
+  # Don't assume the archive's folder layout — locate node.exe and take its directory.
+  $nodeExe = Get-ChildItem -Path $tmp -Filter node.exe -Recurse -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if (-not $nodeExe) {
+    throw "node.exe not found after extracting $url to $tmp (extraction may have failed)."
+  }
+  $nodeRoot = $nodeExe.Directory.FullName
+
   if (Test-Path $target) { Remove-Item -Recurse -Force $target }
-  Move-Item (Join-Path $tmp $name) $target
-  Remove-Item -Force $zip
+  Move-Item $nodeRoot $target
+  Remove-Item -Force $zip -ErrorAction SilentlyContinue
   $env:Path = "$target;$env:Path"
 }
 
