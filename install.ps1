@@ -15,10 +15,18 @@
 
 $ErrorActionPreference = "Stop"
 
+# GitHub (and nodejs.org) require TLS 1.2; older Windows / PowerShell default to TLS 1.0.
+try {
+  [Net.ServicePointManager]::SecurityProtocol =
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
+
 $Repo      = "https://github.com/script-repo/CC-Peep.git"
 $ZipUrl    = "https://github.com/script-repo/CC-Peep/archive/refs/heads/main.zip"
 $Branch    = "main"
 $InstallDir = Join-Path $env:LOCALAPPDATA "CC-Peep"
+# Portable Node version used when winget is unavailable (override: $env:CCPEEP_NODE_VERSION).
+$NodeVersion = if ($env:CCPEEP_NODE_VERSION) { $env:CCPEEP_NODE_VERSION } else { "v20.18.0" }
 
 function Write-Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Write-Ok($msg)   { Write-Host "    $msg" -ForegroundColor Green }
@@ -34,13 +42,44 @@ function Update-PathFromRegistry {
   $env:Path = ($machine, $user | Where-Object { $_ }) -join ";"
 }
 
-function Install-WithWinget($id, $label) {
-  if (-not (Test-Command "winget")) {
-    throw "winget is unavailable. Install $label manually, then re-run this installer."
+# Extract a zip. Expand-Archive needs PowerShell 5+, so fall back to the Shell COM API
+# (available on older Windows / PowerShell 4).
+function Expand-Zip($zipPath, $destDir) {
+  if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
+  if (Test-Command "Expand-Archive") {
+    Expand-Archive -Path $zipPath -DestinationPath $destDir -Force
+  } else {
+    $shell = New-Object -ComObject Shell.Application
+    $items = $shell.NameSpace($zipPath).Items()
+    # 0x10 = yes-to-all, 0x4 = no progress UI.
+    $shell.NameSpace($destDir).CopyHere($items, 0x14)
   }
+}
+
+function Install-WithWinget($id, $label) {
   Write-Step "Installing $label via winget…"
   winget install --id $id -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
   Update-PathFromRegistry
+}
+
+# winget-free Node install: download the official portable zip from nodejs.org and put
+# it on PATH for this session. Works on old Windows Server with no package manager.
+function Install-NodePortable {
+  $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
+  $name = "node-$NodeVersion-win-$arch"
+  $url  = "https://nodejs.org/dist/$NodeVersion/$name.zip"
+  $zip  = Join-Path $env:TEMP "$name.zip"
+  $tmp  = Join-Path $env:TEMP "cc-peep-node"
+  $target = Join-Path $InstallDir "node"
+
+  Write-Step "Downloading portable Node.js $NodeVersion ($arch)…"
+  Invoke-WebRequest -Uri $url -OutFile $zip
+  if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+  Expand-Zip $zip $tmp
+  if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+  Move-Item (Join-Path $tmp $name) $target
+  Remove-Item -Force $zip
+  $env:Path = "$target;$env:Path"
 }
 
 function Ensure-Node {
@@ -48,11 +87,20 @@ function Ensure-Node {
     Write-Ok "Node.js found: $(node --version)"
     return
   }
-  Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
-  if (-not (Test-Command "node")) {
-    throw "Node.js still not on PATH. Open a new terminal and re-run, or install Node.js manually."
+  if (Test-Command "winget") {
+    try {
+      Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+    } catch {
+      Write-Warn "winget install failed ($($_.Exception.Message)); using portable Node."
+    }
+  } else {
+    Write-Warn "winget unavailable; using portable Node from nodejs.org."
   }
-  Write-Ok "Node.js installed: $(node --version)"
+  if (-not (Test-Command "node")) { Install-NodePortable }
+  if (-not (Test-Command "node")) {
+    throw "Node.js still not on PATH. Install Node.js $NodeVersion+ manually, then re-run."
+  }
+  Write-Ok "Node.js ready: $(node --version)"
 }
 
 function Get-Source {
@@ -73,7 +121,7 @@ function Get-Source {
     if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
     $extractTo = Join-Path $env:TEMP "cc-peep-extract"
     if (Test-Path $extractTo) { Remove-Item -Recurse -Force $extractTo }
-    Expand-Archive -Path $tmpZip -DestinationPath $extractTo -Force
+    Expand-Zip $tmpZip $extractTo
     $inner = Get-ChildItem $extractTo | Select-Object -First 1
     Move-Item $inner.FullName $InstallDir
     Remove-Item -Force $tmpZip
@@ -100,7 +148,11 @@ function Install-Client {
     $name    = if ($env:CCPEEP_NAME)    { $env:CCPEEP_NAME }    else { "vm-$env:COMPUTERNAME" }
 
     $config = [ordered]@{ portal = $portal; session = $session; name = $name }
-    $config | ConvertTo-Json | Set-Content -Path (Join-Path $clientDir "config.json") -Encoding utf8
+    # Write UTF-8 *without* BOM — Node's JSON.parse rejects a leading BOM, which would
+    # silently discard the portal URL and fall back to localhost.
+    $json = $config | ConvertTo-Json
+    [System.IO.File]::WriteAllText(
+      (Join-Path $clientDir "config.json"), $json, (New-Object System.Text.UTF8Encoding $false))
     Write-Ok "Wrote config.json (portal=$portal, session=$session, name=$name)"
   } finally {
     Pop-Location
