@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts and installers must stay LF so they run when piped into bash.
+*.sh text eol=lf

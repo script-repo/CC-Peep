@@ -18,9 +18,42 @@ BRANCH="main"
 INSTALL_DIR="${CCPEEP_DIR:-$HOME/CC-Peep}"
 PORT="${CCPEEP_PORT:-8080}"
 
+MIN_NODE_MAJOR=18
+
 step() { printf '\033[36m==> %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m    %s\033[0m\n' "$1"; }
+warn() { printf '\033[33m    %s\033[0m\n' "$1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# True if a new-enough Node is on PATH.
+node_ok() {
+  have node || return 1
+  local major
+  major="$(node --version | sed 's/^v//' | cut -d. -f1)"
+  [ "${major:-0}" -ge "$MIN_NODE_MAJOR" ]
+}
+
+install_node() {
+  step "Installing Node.js LTS (>= $MIN_NODE_MAJOR)…"
+  if have apt-get; then
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  elif have dnf; then
+    # The distro AppStream 'nodejs' module ships an ancient Node; use NodeSource and
+    # let its package supersede the module stream.
+    sudo dnf module reset -y nodejs >/dev/null 2>&1 || true
+    curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo dnf install -y --setopt=nodejs.module_hotfixes=1 nodejs || sudo dnf install -y nodejs
+  elif have yum; then
+    curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo yum install -y --setopt=nodejs.module_hotfixes=1 nodejs || sudo yum install -y nodejs
+  elif have pacman; then
+    sudo pacman -Sy --noconfirm nodejs npm
+  else
+    echo "Please install Node.js (>= $MIN_NODE_MAJOR) manually, then re-run." >&2
+    exit 1
+  fi
+}
 
 ensure_prereqs() {
   if ! have git; then
@@ -34,18 +67,18 @@ ensure_prereqs() {
   fi
   ok "git: $(git --version)"
 
-  if ! have node; then
-    step "Installing Node.js LTS…"
-    if   have apt-get; then
-      curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-      sudo apt-get install -y nodejs
-    elif have dnf;    then sudo dnf install -y nodejs
-    elif have yum;    then sudo yum install -y nodejs
-    elif have pacman; then sudo pacman -Sy --noconfirm nodejs npm
-    else echo "Please install Node.js (>=18) manually, then re-run." >&2; exit 1
+  if node_ok; then
+    ok "node: $(node --version)"
+  else
+    if have node; then warn "Node $(node --version) is too old (need >= $MIN_NODE_MAJOR); upgrading…"; fi
+    install_node
+    if ! node_ok; then
+      echo "Node.js is still older than $MIN_NODE_MAJOR after install ($(node --version 2>/dev/null))." >&2
+      echo "Remove the distro 'nodejs' package and re-run, or install Node $MIN_NODE_MAJOR+ manually." >&2
+      exit 1
     fi
+    ok "node: $(node --version)"
   fi
-  ok "node: $(node --version)"
 }
 
 get_source() {
