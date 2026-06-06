@@ -68,13 +68,30 @@ node src/agent.js --portal ws://YOUR-LINUX-HOST:8080/ws --session lab --name vm-
 Then open the portal URL in a browser, click **Connect**, and **Start microphone &
 audio**. The browser and any peer in the same `session` negotiate a WebRTC audio link.
 
+## Audio
+
+Audio uses a **WebSocket relay** (not WebRTC): peers send an `audio-format` control
+message, then stream raw 16-bit PCM as binary frames that the portal forwards to the
+other peers. This runs on a default **Windows Server 2012 R2** (no SDK/compiler) — the
+Windows side downloads `NAudio.dll` and compiles a tiny C# engine at runtime.
+
+```powershell
+# On the VM (after install): stream system audio out + mic in
+powershell -ExecutionPolicy Bypass -File client\audio-ps\audio-bridge.ps1 -Portal wss://<host>:8080/ws
+```
+
+In the browser, open the portal (HTTPS for mic — see above), Connect, then
+**Start microphone & audio**: you'll hear the VM's system audio and your mic streams to
+the VM. See [`client/audio-ps/README.md`](client/audio-ps/README.md).
+
 ## Status
 
-- **Implemented:** portal signaling server, shared protocol, browser web client
-  (presence + WebRTC mic/playback), Windows client signaling agent + installers.
-- **Planned:** VM-side audio capture/playback (WASAPI via NAudio + a WebRTC peer).
-  See [`docs/architecture.md`](docs/architecture.md) and the `TODO`s in
-  [`client/src/agent.js`](client/src/agent.js).
+- **Implemented:** portal (signaling + presence + audio relay, optional HTTPS/WSS),
+  shared protocol, browser client (presence + PCM playback/mic over the relay), Windows
+  signaling agent, Windows NAudio audio bridge, and single-line installers.
+- **Notes:** the original design targeted WebRTC; on default Server 2012 R2 that isn't
+  practical, so audio uses the WebSocket relay. A `client/audio/` .NET NAudio engine and
+  the `client/src/agent.js` WebRTC hooks remain for newer Windows targets.
 
 ## Start here
 

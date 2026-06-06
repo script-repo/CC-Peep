@@ -105,11 +105,17 @@ wss.on("connection", (socket, req) => {
   const send = (obj) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(obj));
   };
-  const { peerId, handleMessage, handleClose } = hub.connect(send);
+  const sendBinary = (buf) => {
+    if (socket.readyState === socket.OPEN) socket.send(buf, { binary: true });
+  };
+  const { peerId, handleMessage, handleBinary, handleClose } = hub.connect(send, sendBinary);
 
   console.info(`[ws] connected peer=${peerId} from=${req.socket.remoteAddress}`);
 
-  socket.on("message", (data) => handleMessage(data.toString()));
+  socket.on("message", (data, isBinary) => {
+    if (isBinary) handleBinary(data);
+    else handleMessage(data.toString());
+  });
   socket.on("close", () => {
     handleClose();
     console.info(`[ws] disconnected peer=${peerId}`);

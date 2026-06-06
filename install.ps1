@@ -12,6 +12,8 @@
 #   $env:CCPEEP_NAME    = "vm-1"     # optional
 #   $env:CCPEEP_SERVICE = "1"        # auto-start at logon via a Scheduled Task (no prompt)
 #   $env:CCPEEP_SERVICE = "0"        # run once in the foreground (no prompt)
+#   $env:CCPEEP_AUDIO   = "1"        # after install, start the NAudio audio bridge
+#                                    # (stream VM system audio + mic over the relay)
 
 $ErrorActionPreference = "Stop"
 
@@ -201,7 +203,23 @@ function Want-Service {
 Ensure-Node
 Get-Source
 $clientDir = Install-Client
+$audioBridge = Join-Path $clientDir "audio-ps\audio-bridge.ps1"
 
+# Audio bridge mode: stream VM audio to/from the portal (NAudio over the WS relay).
+if ($env:CCPEEP_AUDIO -eq "1") {
+  $portal = if ($env:CCPEEP_PORTAL) { $env:CCPEEP_PORTAL } else { "ws://localhost:8080/ws" }
+  Write-Host ""
+  Write-Step "Starting audio bridge (Ctrl+C to stop)…"
+  Write-Host "    Restart later with:" -ForegroundColor DarkGray
+  Write-Host "    powershell -ExecutionPolicy Bypass -File `"$audioBridge`" -Portal $portal" -ForegroundColor DarkGray
+  Write-Host ""
+  & powershell -ExecutionPolicy Bypass -File $audioBridge -Portal $portal -Session $env:CCPEEP_SESSION -Name $env:CCPEEP_NAME
+  return
+}
+
+Write-Host ""
+Write-Host "    Audio: stream VM sound to/from the browser with the audio bridge:" -ForegroundColor DarkGray
+Write-Host "    powershell -ExecutionPolicy Bypass -File `"$audioBridge`" -Portal <ws://host:8080/ws>" -ForegroundColor DarkGray
 Write-Host ""
 if (Want-Service) {
   $register = Join-Path $clientDir "scripts\register-task.ps1"

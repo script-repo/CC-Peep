@@ -1,15 +1,10 @@
-// Browser client: connects to the portal signaling server, shows presence, and
-// negotiates a WebRTC audio session (mic out -> peer, peer audio -> speakers).
+// Browser client (WebSocket relay model): shows presence, plays PCM audio streamed
+// from the VM (audio.out), and captures the mic to stream back to the VM (audio.in).
 //
-// Imports the shared protocol served by the portal at /shared/protocol.js so the
-// browser and server agree on message shapes.
+// Wire format: an `audio-format` control message describes the PCM, then raw binary
+// frames carry interleaved little-endian 16-bit PCM. The portal relays both.
 
-import {
-  Role,
-  SignalKind,
-  hello,
-  signal,
-} from "/shared/protocol.js";
+import { Role, MessageType, AudioChannel, AUDIO_DEFAULTS, hello, audioFormat } from "/shared/protocol.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -22,17 +17,23 @@ const els = {
   peers: $("peers"),
   mic: $("mic"),
   audioState: $("audio-state"),
-  remote: $("remote"),
   log: $("log"),
 };
 
-const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-
 let ws = null;
 let myPeerId = null;
+
+// --- playback (audio.out from VM) ---
+let playCtx = null;
+let playFormat = null; // { sampleRate, channels, bits }
+let nextPlayTime = 0;
+
+// --- capture (audio.in to VM) ---
+let micCtx = null;
 let micStream = null;
-/** @type {Map<string, RTCPeerConnection>} remotePeerId -> pc */
-const pcs = new Map();
+let micNode = null;
+let micSource = null;
+const MIC_RATE = AUDIO_DEFAULTS.sampleRate; // 16000
 
 function log(...args) {
   const line = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
@@ -50,29 +51,30 @@ function wsUrl() {
   return `${proto}//${location.host}/ws`;
 }
 
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+}
+
 function connect() {
   ws = new WebSocket(wsUrl());
+  ws.binaryType = "arraybuffer";
   setStatus("connecting…");
 
   ws.onopen = () => {
-    ws.send(
-      JSON.stringify(
-        hello({
-          sessionId: els.session.value.trim() || "lab",
-          role: Role.WEB_CLIENT,
-          name: els.name.value.trim() || "browser",
-        }),
-      ),
-    );
+    send(hello({
+      sessionId: els.session.value.trim() || "lab",
+      role: Role.WEB_CLIENT,
+      name: els.name.value.trim() || "browser",
+    }));
   };
 
   ws.onmessage = (ev) => {
-    let msg;
-    try {
-      msg = JSON.parse(ev.data);
-    } catch {
+    if (ev.data instanceof ArrayBuffer) {
+      onAudioFrame(ev.data);
       return;
     }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
     handleMessage(msg);
   };
 
@@ -82,24 +84,21 @@ function connect() {
     els.disconnect.disabled = true;
     els.mic.disabled = true;
     els.peers.innerHTML = '<li class="muted">not connected</li>';
-    for (const pc of pcs.values()) pc.close();
-    pcs.clear();
+    stopMic();
+    teardownPlayback();
   };
 
   ws.onerror = () => log("[ws] error");
 }
 
 function disconnect() {
-  if (micStream) {
-    micStream.getTracks().forEach((t) => t.stop());
-    micStream = null;
-  }
+  stopMic();
   ws?.close();
 }
 
 function handleMessage(msg) {
   switch (msg.type) {
-    case "welcome":
+    case MessageType.WELCOME:
       myPeerId = msg.peerId;
       setStatus("connected");
       els.connect.disabled = true;
@@ -107,18 +106,21 @@ function handleMessage(msg) {
       els.mic.disabled = false;
       log(`[welcome] peerId=${msg.peerId} session=${msg.sessionId}`);
       break;
-    case "presence":
+    case MessageType.PRESENCE:
       renderPeers(msg.peers);
       break;
-    case "signal":
-      onSignal(msg);
+    case MessageType.AUDIO_FORMAT:
+      if (msg.channel === AudioChannel.OUT) {
+        playFormat = { sampleRate: msg.sampleRate, channels: msg.channels, bits: msg.bits };
+        setupPlayback();
+        log(`[audio] VM stream: ${msg.sampleRate}Hz ${msg.channels}ch ${msg.bits}-bit`);
+        els.audioState.textContent = "Receiving audio from the VM.";
+      }
       break;
-    case "bye":
+    case MessageType.BYE:
       log(`[bye] peer ${msg.peerId} left`);
-      pcs.get(msg.peerId)?.close();
-      pcs.delete(msg.peerId);
       break;
-    case "error":
+    case MessageType.ERROR:
       log(`[error] ${msg.code}: ${msg.message}`);
       break;
   }
@@ -142,83 +144,111 @@ function renderPeers(peers) {
   }
 }
 
-function newPeerConnection(remoteId) {
-  const pc = new RTCPeerConnection(ICE);
-  pcs.set(remoteId, pc);
+// ---- Playback: schedule incoming PCM frames on the Web Audio clock ----
 
-  if (micStream) {
-    for (const track of micStream.getTracks()) pc.addTrack(track, micStream);
+function setupPlayback() {
+  if (!playCtx) {
+    playCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-
-  pc.ontrack = (ev) => {
-    els.remote.srcObject = ev.streams[0];
-    els.audioState.textContent = "Receiving audio from peer.";
-    log(`[rtc] remote track from ${remoteId}`);
-  };
-
-  pc.onicecandidate = (ev) => {
-    if (ev.candidate) {
-      send(signal({ to: remoteId, kind: SignalKind.CANDIDATE, data: ev.candidate }));
-    }
-  };
-
-  pc.onconnectionstatechange = () => log(`[rtc] ${remoteId} ${pc.connectionState}`);
-  return pc;
+  playCtx.resume?.();
+  nextPlayTime = playCtx.currentTime + 0.1; // small startup buffer
 }
 
-async function startAudio() {
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    els.audioState.textContent = "Microphone live. Offering audio to peers in the session.";
-    els.mic.disabled = true;
-    log("[mic] capture started");
+function teardownPlayback() {
+  playCtx?.close?.();
+  playCtx = null;
+  playFormat = null;
+}
 
-    // Offer to every other peer currently in the session.
-    const items = [...els.peers.querySelectorAll("li.peer")];
-    // We re-derive peers from presence rather than DOM; offer on next presence too.
-    // Immediately offer to known peers:
-    for (const [remoteId] of pcs) await makeOffer(remoteId);
+function onAudioFrame(arrayBuffer) {
+  if (!playCtx || !playFormat) return;
+  const view = new DataView(arrayBuffer);
+  const samples = arrayBuffer.byteLength / 2; // 16-bit
+  const channels = playFormat.channels || 1;
+  const frames = Math.floor(samples / channels);
+  if (frames === 0) return;
+
+  const buffer = playCtx.createBuffer(channels, frames, playFormat.sampleRate);
+  for (let ch = 0; ch < channels; ch++) {
+    const out = buffer.getChannelData(ch);
+    for (let i = 0; i < frames; i++) {
+      const int16 = view.getInt16((i * channels + ch) * 2, true);
+      out[i] = int16 / 32768;
+    }
+  }
+
+  const src = playCtx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(playCtx.destination);
+  const now = playCtx.currentTime;
+  if (nextPlayTime < now) nextPlayTime = now + 0.05; // re-sync if we fell behind
+  src.start(nextPlayTime);
+  nextPlayTime += buffer.duration;
+}
+
+// ---- Capture: mic -> downsample to 16k mono int16 -> binary frames ----
+
+async function startMic() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      els.audioState.textContent =
+        "Microphone unavailable: this page must be served over HTTPS (secure context).";
+      log("[mic] navigator.mediaDevices is undefined — needs HTTPS or localhost.");
+      return;
+    }
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    micSource = micCtx.createMediaStreamSource(micStream);
+    micNode = micCtx.createScriptProcessor(4096, 1, 1);
+
+    send(audioFormat({ channel: AudioChannel.IN, sampleRate: MIC_RATE, channels: 1, bits: 16 }));
+
+    micNode.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      const down = downsample(input, micCtx.sampleRate, MIC_RATE);
+      const pcm = floatToInt16(down);
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(pcm.buffer);
+    };
+
+    micSource.connect(micNode);
+    micNode.connect(micCtx.destination); // keeps the node alive in all browsers
+    els.mic.disabled = true;
+    els.audioState.textContent = "Microphone live — streaming to the VM (audio.in).";
+    log(`[mic] capturing; downsampling ${micCtx.sampleRate}Hz -> ${MIC_RATE}Hz mono`);
   } catch (err) {
-    els.audioState.textContent = "Microphone permission denied or unavailable.";
+    els.audioState.textContent = `Microphone error: ${err.message}`;
     log(`[mic] error: ${err.message}`);
   }
 }
 
-async function makeOffer(remoteId) {
-  let pc = pcs.get(remoteId);
-  if (!pc) pc = newPeerConnection(remoteId);
-  const offer = await pc.createOffer({ offerToReceiveAudio: true });
-  await pc.setLocalDescription(offer);
-  send(signal({ to: remoteId, kind: SignalKind.OFFER, data: offer }));
-  log(`[rtc] offer -> ${remoteId}`);
+function stopMic() {
+  try { micNode?.disconnect(); } catch {}
+  try { micSource?.disconnect(); } catch {}
+  micStream?.getTracks().forEach((t) => t.stop());
+  micCtx?.close?.();
+  micNode = micSource = micStream = micCtx = null;
 }
 
-async function onSignal(msg) {
-  const remoteId = msg.from;
-  let pc = pcs.get(remoteId);
-  if (!pc) pc = newPeerConnection(remoteId);
-
-  if (msg.kind === SignalKind.OFFER) {
-    await pc.setRemoteDescription(msg.data);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    send(signal({ to: remoteId, kind: SignalKind.ANSWER, data: answer }));
-    log(`[rtc] answer -> ${remoteId}`);
-  } else if (msg.kind === SignalKind.ANSWER) {
-    await pc.setRemoteDescription(msg.data);
-  } else if (msg.kind === SignalKind.CANDIDATE) {
-    try {
-      await pc.addIceCandidate(msg.data);
-    } catch (err) {
-      log(`[rtc] addIceCandidate failed: ${err.message}`);
-    }
+function downsample(input, inRate, outRate) {
+  if (outRate >= inRate) return input;
+  const ratio = inRate / outRate;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    out[i] = input[Math.floor(i * ratio)];
   }
+  return out;
 }
 
-function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+function floatToInt16(floats) {
+  const out = new Int16Array(floats.length);
+  for (let i = 0; i < floats.length; i++) {
+    const s = Math.max(-1, Math.min(1, floats[i]));
+    out[i] = s < 0 ? s * 32768 : s * 32767;
+  }
+  return out;
 }
 
 els.connect.addEventListener("click", connect);
 els.disconnect.addEventListener("click", disconnect);
-els.mic.addEventListener("click", startAudio);
+els.mic.addEventListener("click", startMic);
