@@ -1,0 +1,23 @@
+# Node (server / web-client)
+node_modules/
+npm-debug.log*
+dist/
+.env
+.env.local
+
+# .NET (vm-agent)
+bin/
+obj/
+*.user
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Audio scratch / recordings
+*.wav
+*.opus
+*.pcm
+recordings/
