@@ -8,7 +8,9 @@
 
 param(
   [string]$ClientDir = (Split-Path -Parent $PSScriptRoot),
-  [string]$TaskName  = "CC-Peep Audio Agent"
+  [string]$TaskName  = "CC-Peep Audio Agent",
+  # Absolute path to node.exe. Falls back to PATH resolution when not supplied.
+  [string]$NodePath
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,11 +26,14 @@ if (-not (Test-Path $agent)) {
   throw "Agent not found at $agent. Pass -ClientDir pointing at the client/ folder."
 }
 
-$nodeCmd = Get-Command node -ErrorAction SilentlyContinue
-if (-not $nodeCmd) {
-  throw "node.exe not found on PATH. Install Node.js (or run install.ps1) first."
+$node = $NodePath
+if (-not $node) {
+  $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+  if ($nodeCmd) { $node = $nodeCmd.Source }
 }
-$node = $nodeCmd.Source
+if ([string]::IsNullOrWhiteSpace($node) -or -not (Test-Path $node)) {
+  throw "node.exe not found (NodePath='$NodePath'). Pass -NodePath or ensure node is on PATH."
+}
 
 Write-Host "==> Registering Scheduled Task '$TaskName'" -ForegroundColor Cyan
 Write-Host "    node:  $node"

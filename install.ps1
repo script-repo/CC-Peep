@@ -206,7 +206,8 @@ Write-Host ""
 if (Want-Service) {
   $register = Join-Path $clientDir "scripts\register-task.ps1"
   Write-Step "Registering background Scheduled Task…"
-  & powershell -ExecutionPolicy Bypass -File $register -ClientDir $clientDir
+  $nodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+  & powershell -ExecutionPolicy Bypass -File $register -ClientDir $clientDir -NodePath $nodePath
   Write-Host ""
   Write-Host "    Agent installed as a background task. Remove with:" -ForegroundColor DarkGray
   Write-Host "    powershell -File `"$clientDir\scripts\unregister-task.ps1`"" -ForegroundColor DarkGray
