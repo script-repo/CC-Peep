@@ -144,7 +144,7 @@ function Get-Source {
       git clone --depth 1 --branch $Branch $Repo $InstallDir | Out-Null
     }
   } else {
-    Write-Warn "git not found — downloading source archive instead."
+    Write-Warn "git not found - downloading source archive instead."
     $tmpZip = Join-Path $env:TEMP "cc-peep.zip"
     Invoke-WebRequest -Uri $ZipUrl -OutFile $tmpZip
     if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }

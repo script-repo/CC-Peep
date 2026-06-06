@@ -53,7 +53,7 @@ $settings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
   -Principal $principal -Settings $settings -Force | Out-Null
 
-Write-Host "==> Starting task now…" -ForegroundColor Cyan
+Write-Host "==> Starting task now..." -ForegroundColor Cyan
 Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "    Done. The agent will start at every logon and restart if it exits." -ForegroundColor Green

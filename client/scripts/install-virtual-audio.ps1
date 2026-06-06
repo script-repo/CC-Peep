@@ -54,10 +54,10 @@ $cache = Join-Path $env:LOCALAPPDATA "cc-peep-scream"
 $zip = Join-Path $env:TEMP "Scream$Version.zip"
 $extract = Join-Path $cache "Scream$Version"
 
-Write-Step "Downloading Scream $Version ($arch)…"
+Write-Step "Downloading Scream $Version ($arch)..."
 $url = "https://github.com/duncanthrax/scream/releases/download/$Version/Scream$Version.zip"
 Invoke-WebRequest -Uri $url -OutFile $zip
-Write-Step "Extracting…"
+Write-Step "Extracting..."
 Expand-ZipSafe $zip $extract
 
 # Locate the driver files for this architecture.
@@ -75,7 +75,7 @@ if (Test-Path $sys) {
   try {
     $sig = Get-AuthenticodeSignature $sys
     if ($sig.SignerCertificate) {
-      Write-Step "Trusting driver publisher certificate…"
+      Write-Step "Trusting driver publisher certificate..."
       foreach ($name in @("TrustedPublisher", "Root")) {
         $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($name, "LocalMachine")
         $store.Open("ReadWrite")

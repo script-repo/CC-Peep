@@ -57,7 +57,7 @@ function Resolve-NAudio {
   $dll = Join-Path $cache "NAudio.dll"
   if (Test-Path $dll) { return $dll }
 
-  Write-Step "Downloading NAudio $NAudioVersion from nuget.org…"
+  Write-Step "Downloading NAudio $NAudioVersion from nuget.org..."
   if (-not (Test-Path $cache)) { New-Item -ItemType Directory -Path $cache | Out-Null }
   $nupkg = Join-Path $env:TEMP "naudio-$NAudioVersion.zip"
   Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/NAudio/$NAudioVersion" -OutFile $nupkg
@@ -83,11 +83,11 @@ $naudio = Resolve-NAudio
 try {
   $svc = Get-Service Audiosrv -ErrorAction SilentlyContinue
   if ($svc -and $svc.Status -ne "Running") {
-    Write-Step "Starting Windows Audio service (Audiosrv)…"
+    Write-Step "Starting Windows Audio service (Audiosrv)..."
     Set-Service Audiosrv -StartupType Automatic -ErrorAction SilentlyContinue
     Start-Service Audiosrv -ErrorAction SilentlyContinue
   }
-} catch { Write-Host "    (could not start Audiosrv — run as Administrator if audio is missing)" -ForegroundColor Yellow }
+} catch { Write-Host "    (could not start Audiosrv - run as Administrator if audio is missing)" -ForegroundColor Yellow }
 
 $cs = @'
 using System;
@@ -131,7 +131,7 @@ public class CcPeepAudioBridge
 
         if (!capturing && !playing)
         {
-            Log("No usable audio device — staying connected for presence only.");
+            Log("No usable audio device - staying connected for presence only.");
             Log("This VM has no audio render/capture endpoint. Fixes:");
             Log("  * Connect via RDP with 'Remote audio' = 'Play on this computer' (adds a device), or");
             Log("  * install a virtual audio device (e.g. VB-CABLE / Scream), then re-run.");
@@ -288,7 +288,7 @@ public class CcPeepAudioBridge
 }
 '@
 
-Write-Step "Compiling audio engine (Add-Type)…"
+Write-Step "Compiling audio engine (Add-Type)..."
 Add-Type -TypeDefinition $cs -ReferencedAssemblies $naudio, "System.dll" -ErrorAction Stop
 
 Write-Ok "Engine ready. Portal=$Portal Session=$Session Name=$Name Direction=$Direction Rate=$SampleRate"

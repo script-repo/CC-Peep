@@ -14,7 +14,7 @@ if (-not $task) {
   return
 }
 
-Write-Host "==> Stopping and removing '$TaskName'…" -ForegroundColor Cyan
+Write-Host "==> Stopping and removing '$TaskName'..." -ForegroundColor Cyan
 Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 Write-Host "    Removed." -ForegroundColor Green
