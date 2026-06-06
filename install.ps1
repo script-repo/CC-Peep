@@ -42,17 +42,33 @@ function Update-PathFromRegistry {
   $env:Path = ($machine, $user | Where-Object { $_ }) -join ";"
 }
 
-# Extract a zip. Expand-Archive needs PowerShell 5+, so fall back to the Shell COM API
-# (available on older Windows / PowerShell 4).
+# Extract a zip into $destDir. Prefer Expand-Archive (PS 5+), then the synchronous
+# .NET ZipFile API (.NET 4.5+, available on PowerShell 4), then Shell COM as a last
+# resort — COM's CopyHere is async, so wait for it to finish before returning.
 function Expand-Zip($zipPath, $destDir) {
-  if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
   if (Test-Command "Expand-Archive") {
+    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
     Expand-Archive -Path $zipPath -DestinationPath $destDir -Force
-  } else {
-    $shell = New-Object -ComObject Shell.Application
-    $items = $shell.NameSpace($zipPath).Items()
-    # 0x10 = yes-to-all, 0x4 = no progress UI.
-    $shell.NameSpace($destDir).CopyHere($items, 0x14)
+    return
+  }
+  try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path $destDir) { Remove-Item -Recurse -Force $destDir }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $destDir)
+    return
+  } catch {
+    Write-Warn "ZipFile extract failed ($($_.Exception.Message)); using Shell COM."
+  }
+  if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
+  $shell = New-Object -ComObject Shell.Application
+  $items = $shell.NameSpace($zipPath).Items()
+  $expected = $items.Count
+  # 0x10 = yes-to-all, 0x4 = no progress UI.
+  $shell.NameSpace($destDir).CopyHere($items, 0x14)
+  $waited = 0
+  while (((Get-ChildItem $destDir -Force | Measure-Object).Count -lt $expected) -and ($waited -lt 120)) {
+    Start-Sleep -Milliseconds 500
+    $waited++
   }
 }
 
