@@ -1,0 +1,5 @@
+{
+  "portal": "ws://PORTAL-HOST:8080/ws",
+  "session": "lab",
+  "name": "vm-1"
+}

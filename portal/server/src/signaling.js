@@ -13,7 +13,7 @@ import {
   signal,
   bye,
   error,
-} from "../../shared/protocol.js";
+} from "../../../shared/protocol.js";
 
 /** @typedef {{ peerId: string, role: string, name: string, send: (obj: object) => void }} Peer */
 
