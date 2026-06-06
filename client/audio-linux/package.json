@@ -1,0 +1,20 @@
+{
+  "name": "ccpeep-audio-linux",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CC-Peep Linux audio bridge: PulseAudio/PipeWire <-> portal WebSocket relay via ffmpeg",
+  "type": "module",
+  "main": "audio-bridge.mjs",
+  "bin": {
+    "ccpeep-audio-linux": "audio-bridge.mjs"
+  },
+  "scripts": {
+    "start": "node audio-bridge.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
