@@ -39,14 +39,17 @@ install_node() {
     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
     sudo apt-get install -y nodejs
   elif have dnf; then
-    # The distro AppStream 'nodejs' module ships an ancient Node; use NodeSource and
-    # let its package supersede the module stream.
+    # The distro AppStream 'nodejs' module ships an ancient Node (10) whose nodejs/npm
+    # packages conflict with NodeSource's. Remove + disable the module, then install.
+    sudo dnf remove -y nodejs npm nodejs-full-i18n >/dev/null 2>&1 || true
     sudo dnf module reset -y nodejs >/dev/null 2>&1 || true
+    sudo dnf module disable -y nodejs >/dev/null 2>&1 || true
     curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo dnf install -y --setopt=nodejs.module_hotfixes=1 nodejs || sudo dnf install -y nodejs
+    sudo dnf install -y nodejs
   elif have yum; then
+    sudo yum remove -y nodejs npm nodejs-full-i18n >/dev/null 2>&1 || true
     curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo yum install -y --setopt=nodejs.module_hotfixes=1 nodejs || sudo yum install -y nodejs
+    sudo yum install -y nodejs
   elif have pacman; then
     sudo pacman -Sy --noconfirm nodejs npm
   else
