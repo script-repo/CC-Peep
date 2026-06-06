@@ -10,6 +10,8 @@
 #   CCPEEP_PORT   portal HTTP/WS port (default 8080)
 #   CCPEEP_DIR    install directory   (default $HOME/CC-Peep)
 #   CCPEEP_NO_RUN set to 1 to install without starting the server
+#   CCPEEP_TLS    set to 1 to generate a self-signed cert and serve HTTPS/WSS
+#                 (browsers require HTTPS to allow microphone capture)
 
 set -euo pipefail
 
@@ -115,12 +117,29 @@ install_portal() {
   ok "Dependencies installed"
 }
 
+# Generate a self-signed cert when TLS is requested and none exists yet.
+maybe_setup_tls() {
+  [ "${CCPEEP_TLS:-0}" = "1" ] || return 0
+  local certDir="$INSTALL_DIR/portal/certs"
+  if [ -f "$certDir/cert.pem" ] && [ -f "$certDir/key.pem" ]; then
+    ok "TLS cert already present in $certDir"
+    return 0
+  fi
+  step "Setting up TLS (self-signed cert)…"
+  bash "$INSTALL_DIR/portal/scripts/gen-cert.sh" "$HOST_IP"
+}
+
 main() {
   printf '\nCC-Peep audio-agents — Linux portal installer\n'
   printf -- '---------------------------------------------\n'
+  HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
   ensure_prereqs
   get_source
   install_portal
+  maybe_setup_tls
+
+  local scheme="http"
+  [ "${CCPEEP_TLS:-0}" = "1" ] && scheme="https"
 
   if [ "${CCPEEP_NO_RUN:-0}" = "1" ]; then
     step "Install complete. Start later with:"
@@ -129,7 +148,7 @@ main() {
   fi
 
   step "Starting portal on port $PORT (Ctrl+C to stop)…"
-  echo  "    Web client: http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PORT/"
+  echo  "    Web client: $scheme://$HOST_IP:$PORT/"
   PORT="$PORT" node "$INSTALL_DIR/portal/server/src/index.js"
 }
 

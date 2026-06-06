@@ -37,6 +37,23 @@ curl -fsSL https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.sh
 The installers ensure Node.js (+ git), fetch the repo, install dependencies, and
 start the component. The portal serves the web client at `http://<host>:8080/`.
 
+### HTTPS (required for browser microphone)
+
+Browsers only expose microphone capture (`getUserMedia`) in a **secure context**
+(HTTPS or `localhost`). To serve the portal over HTTPS/WSS with a self-signed cert:
+
+```bash
+CCPEEP_TLS=1 curl -fsSL https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.sh | bash
+# or, on an existing checkout:
+bash portal/scripts/gen-cert.sh <portal-ip>   # writes portal/certs/{cert,key}.pem
+node portal/server/src/index.js                # auto-detects the cert -> https/wss
+```
+
+Then use `https://<host>:8080/` in the browser (accept the self-signed warning) and
+`wss://<host>:8080/ws` for the client. The Windows agent accepts the self-signed cert
+by default; set `CCPEEP_TLS_STRICT=1` to enforce verification. Provide your own cert
+with `CCPEEP_TLS_CERT` / `CCPEEP_TLS_KEY`.
+
 ## Manual run
 
 ```bash

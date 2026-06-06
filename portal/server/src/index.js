@@ -6,6 +6,7 @@
 // - WS  /ws               -> presence + WebRTC signaling (see shared/protocol.js)
 
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..", "..");
 const WEB_CLIENT_DIR = path.join(ROOT, "portal", "web-client");
 const SHARED_DIR = path.join(ROOT, "shared");
+
+// TLS is optional. Enable it by providing a cert + key via env vars, or by dropping
+// cert.pem / key.pem into portal/certs/. Browsers require HTTPS (a secure context)
+// before they expose microphone capture (getUserMedia).
+const DEFAULT_CERT_DIR = path.join(ROOT, "portal", "certs");
+function loadTls() {
+  const certPath = process.env.CCPEEP_TLS_CERT || path.join(DEFAULT_CERT_DIR, "cert.pem");
+  const keyPath = process.env.CCPEEP_TLS_KEY || path.join(DEFAULT_CERT_DIR, "key.pem");
+  try {
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      return { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath), certPath, keyPath };
+    }
+  } catch (err) {
+    console.error(`[tls] failed to read cert/key: ${err.message}`);
+  }
+  return null;
+}
+const tls = loadTls();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -51,7 +70,7 @@ function safeJoin(baseDir, urlPath) {
 
 const hub = new SignalingHub();
 
-const httpServer = http.createServer((req, res) => {
+function requestHandler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = decodeURIComponent(url.pathname);
 
@@ -74,7 +93,11 @@ const httpServer = http.createServer((req, res) => {
 
   res.writeHead(404, { "content-type": "text/plain" });
   res.end("Not found");
-});
+}
+
+const httpServer = tls
+  ? https.createServer({ cert: tls.cert, key: tls.key }, requestHandler)
+  : http.createServer(requestHandler);
 
 const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
@@ -94,11 +117,15 @@ wss.on("connection", (socket, req) => {
   socket.on("error", (err) => console.error(`[ws] error peer=${peerId}:`, err.message));
 });
 
+const httpScheme = tls ? "https" : "http";
+const wsScheme = tls ? "wss" : "ws";
 httpServer.listen(PORT, HOST, () => {
-  console.info(`audio-agents portal listening on http://${HOST}:${PORT}`);
-  console.info(`  web client: http://${HOST}:${PORT}/`);
-  console.info(`  health:     http://${HOST}:${PORT}/health`);
-  console.info(`  websocket:  ws://${HOST}:${PORT}/ws`);
+  console.info(`audio-agents portal listening on ${httpScheme}://${HOST}:${PORT}` + (tls ? " (TLS)" : ""));
+  if (tls) console.info(`  tls cert:   ${tls.certPath}`);
+  console.info(`  web client: ${httpScheme}://${HOST}:${PORT}/`);
+  console.info(`  health:     ${httpScheme}://${HOST}:${PORT}/health`);
+  console.info(`  websocket:  ${wsScheme}://${HOST}:${PORT}/ws`);
+  if (!tls) console.info("  (HTTP mode — browser mic needs HTTPS; see portal/README for TLS)");
 });
 
 function shutdown(reason) {

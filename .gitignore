@@ -16,6 +16,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# TLS certs / keys (generated locally; never commit private keys)
+portal/certs/
+*.pem
+
 # Audio scratch / recordings
 *.wav
 *.opus

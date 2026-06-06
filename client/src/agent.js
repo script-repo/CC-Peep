@@ -77,7 +77,13 @@ function send(obj) {
 
 function connect() {
   log(`connecting to portal ${config.portal} (session=${config.session}, name=${config.name})`);
-  ws = new WebSocket(config.portal);
+  // For wss:// portals using a self-signed cert (the lab default), skip cert
+  // verification unless CCPEEP_TLS_STRICT=1 is set.
+  const opts = {};
+  if (config.portal.startsWith("wss:") && process.env.CCPEEP_TLS_STRICT !== "1") {
+    opts.rejectUnauthorized = false;
+  }
+  ws = new WebSocket(config.portal, opts);
 
   ws.on("open", () => {
     log("connected — announcing presence as vm-agent");
