@@ -58,9 +58,15 @@ device by any of:
 - **RDP with audio redirection** — connect via Remote Desktop, and under *Local
   Resources → Remote audio → Settings* choose **Play on this computer**. That adds a
   render endpoint in the session; loopback then captures whatever plays in the VM.
-- **A virtual audio device/driver** — e.g. [VB-CABLE](https://vb-audio.com/Cable/) or
-  [Scream](https://github.com/duncanthrax/scream). Set it as the default playback
-  device; apps in the VM output to it and the bridge captures it.
+- **A virtual audio device/driver** — run the bundled helper from an **Administrator**
+  PowerShell to install [Scream](https://github.com/duncanthrax/scream) unattended:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File client\scripts\install-virtual-audio.ps1
+  ```
+
+  Then open `mmsys.cpl` and set **Scream** as the default playback device (reboot once
+  if the device doesn't appear). Apps in the VM output to it and the bridge captures it.
 
 The bridge tries to start the `Audiosrv` service automatically (run as Administrator),
 but a device must still exist.
