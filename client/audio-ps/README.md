@@ -46,3 +46,21 @@ as binary frames. For a self-signed `wss://` portal the bridge accepts the cert
 - Outbound access to nuget.org once (to fetch `NAudio.dll`, cached in
   `%LOCALAPPDATA%\cc-peep-naudio`). Pre-seed it with `-NAudioDll <path>` for offline.
 - `WasapiLoopbackCapture` captures the **default render device** output.
+
+## No audio device? (common on a headless server)
+
+Windows Server has **Windows Audio disabled** by default and many VMs (Nutanix, etc.)
+have **no audio endpoint at all**. WASAPI loopback needs a playback (render) device to
+capture, so without one the bridge stays connected for presence but logs that audio is
+disabled (HRESULT `0x80070490` "Element not found" if you see it raw). Give the VM a
+device by any of:
+
+- **RDP with audio redirection** — connect via Remote Desktop, and under *Local
+  Resources → Remote audio → Settings* choose **Play on this computer**. That adds a
+  render endpoint in the session; loopback then captures whatever plays in the VM.
+- **A virtual audio device/driver** — e.g. [VB-CABLE](https://vb-audio.com/Cable/) or
+  [Scream](https://github.com/duncanthrax/scream). Set it as the default playback
+  device; apps in the VM output to it and the bridge captures it.
+
+The bridge tries to start the `Audiosrv` service automatically (run as Administrator),
+but a device must still exist.

@@ -78,6 +78,17 @@ function Resolve-NAudio {
 $naudio = Resolve-NAudio
 [Reflection.Assembly]::LoadFrom($naudio) | Out-Null
 
+# Windows Audio is disabled by default on Server. Try to enable it (needs admin); a
+# device must still exist (RDP remote audio or a virtual cable) for capture/playback.
+try {
+  $svc = Get-Service Audiosrv -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -ne "Running") {
+    Write-Step "Starting Windows Audio service (Audiosrv)…"
+    Set-Service Audiosrv -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service Audiosrv -ErrorAction SilentlyContinue
+  }
+} catch { Write-Host "    (could not start Audiosrv — run as Administrator if audio is missing)" -ForegroundColor Yellow }
+
 $cs = @'
 using System;
 using System.IO;
@@ -87,6 +98,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NAudio.Wave;
+using NAudio.CoreAudioApi;
 
 public class CcPeepAudioBridge
 {
@@ -113,11 +125,52 @@ public class CcPeepAudioBridge
         Log("connected; announcing presence as vm-agent");
         SendText("{\"type\":\"hello\",\"sessionId\":\"" + Esc(_session) + "\",\"role\":\"vm-agent\",\"name\":\"" + Esc(_name) + "\"}");
 
-        if (_direction != "in") StartCapture();
-        if (_direction != "out") StartPlayback();
+        bool capturing = false, playing = false;
+        if (_direction != "in") capturing = TryStartCapture();
+        if (_direction != "out") playing = TryStartPlayback();
+
+        if (!capturing && !playing)
+        {
+            Log("No usable audio device — staying connected for presence only.");
+            Log("This VM has no audio render/capture endpoint. Fixes:");
+            Log("  * Connect via RDP with 'Remote audio' = 'Play on this computer' (adds a device), or");
+            Log("  * install a virtual audio device (e.g. VB-CABLE / Scream), then re-run.");
+        }
 
         ReceiveLoop().GetAwaiter().GetResult();
         Log("disconnected");
+    }
+
+    private static bool HasDevice(DataFlow flow)
+    {
+        try
+        {
+            using (var en = new MMDeviceEnumerator())
+                return en.EnumerateAudioEndPoints(flow, DeviceState.Active).Count > 0;
+        }
+        catch { return false; }
+    }
+
+    private bool TryStartCapture()
+    {
+        if (!HasDevice(DataFlow.Render))
+        {
+            Log("audio.out disabled: no active playback (render) device to capture (WASAPI loopback).");
+            return false;
+        }
+        try { StartCapture(); return true; }
+        catch (Exception ex) { Log("audio.out capture failed: " + ex.Message); return false; }
+    }
+
+    private bool TryStartPlayback()
+    {
+        if (!HasDevice(DataFlow.Render))
+        {
+            Log("audio.in disabled: no active playback (render) device to play into.");
+            return false;
+        }
+        try { StartPlayback(); return true; }
+        catch (Exception ex) { Log("audio.in playback failed: " + ex.Message); return false; }
     }
 
     private void StartCapture()
