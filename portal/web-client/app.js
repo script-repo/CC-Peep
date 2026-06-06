@@ -161,6 +161,11 @@ function teardownPlayback() {
 }
 
 function onAudioFrame(arrayBuffer) {
+  // The relay format is fixed (mono 16-bit @ AUDIO_DEFAULTS). If we never received an
+  // explicit audio-format (e.g. we joined after the VM started capturing), assume it so
+  // late joiners still play audio instead of silently dropping frames.
+  if (!playFormat) playFormat = { sampleRate: AUDIO_DEFAULTS.sampleRate, channels: 1, bits: 16 };
+  if (!playCtx) setupPlayback();
   if (!playCtx || !playFormat) return;
   const view = new DataView(arrayBuffer);
   const samples = arrayBuffer.byteLength / 2; // 16-bit
@@ -197,6 +202,12 @@ async function startMic() {
       return;
     }
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+
+    // Start playback under this user gesture so the AudioContext isn't left suspended,
+    // and default the play format in case the VM's audio-format message was missed.
+    if (!playFormat) playFormat = { sampleRate: AUDIO_DEFAULTS.sampleRate, channels: 1, bits: 16 };
+    setupPlayback();
+
     micCtx = new (window.AudioContext || window.webkitAudioContext)();
     micSource = micCtx.createMediaStreamSource(micStream);
     micNode = micCtx.createScriptProcessor(4096, 1, 1);
