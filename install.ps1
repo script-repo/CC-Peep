@@ -86,7 +86,9 @@ function Install-NodePortable {
   $url  = "https://nodejs.org/dist/$NodeVersion/$name.zip"
   $zip  = Join-Path $env:TEMP "$name.zip"
   $tmp  = Join-Path $env:TEMP "cc-peep-node"
-  $target = Join-Path $InstallDir "node"
+  # Keep portable Node outside $InstallDir (whose parent may not exist yet, and which
+  # Get-Source wipes on refresh). %LOCALAPPDATA% always exists.
+  $target = Join-Path $env:LOCALAPPDATA "cc-peep-node"
 
   Write-Step "Downloading portable Node.js $NodeVersion ($arch)…"
   if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
