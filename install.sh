@@ -33,23 +33,35 @@ node_ok() {
   [ "${major:-0}" -ge "$MIN_NODE_MAJOR" ]
 }
 
+# RHEL/Rocky/Alma: the old Node 10 comes from the 'nodejs' AppStream module. Switching
+# the module stream to a supported one (20, then 18) is conflict-free and needs no
+# third-party repo. NodeSource is only a last resort.
+install_node_dnf() {
+  local pm; pm="$(have dnf && echo dnf || echo yum)"
+  for stream in 20 18; do
+    step "Switching AppStream nodejs module to :$stream…"
+    sudo "$pm" module reset -y nodejs >/dev/null 2>&1 || true
+    if sudo "$pm" module install -y "nodejs:$stream/common" --allowerasing; then
+      return 0
+    fi
+  done
+  warn "Module streams unavailable; falling back to NodeSource."
+  sudo "$pm" remove -y nodejs npm nodejs-full-i18n --allowerasing >/dev/null 2>&1 || true
+  sudo "$pm" module reset -y nodejs >/dev/null 2>&1 || true
+  sudo "$pm" module disable -y nodejs >/dev/null 2>&1 || true
+  curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
+  sudo "$pm" install -y nodejs --allowerasing
+}
+
 install_node() {
   step "Installing Node.js LTS (>= $MIN_NODE_MAJOR)…"
   if have apt-get; then
     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
     sudo apt-get install -y nodejs
   elif have dnf; then
-    # The distro AppStream 'nodejs' module ships an ancient Node (10) whose nodejs/npm
-    # packages conflict with NodeSource's. Remove + disable the module, then install.
-    sudo dnf remove -y nodejs npm nodejs-full-i18n >/dev/null 2>&1 || true
-    sudo dnf module reset -y nodejs >/dev/null 2>&1 || true
-    sudo dnf module disable -y nodejs >/dev/null 2>&1 || true
-    curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo dnf install -y nodejs
+    install_node_dnf
   elif have yum; then
-    sudo yum remove -y nodejs npm nodejs-full-i18n >/dev/null 2>&1 || true
-    curl -fsSL https://rpm.nodesource.com/setup_lts.x | sudo -E bash -
-    sudo yum install -y nodejs
+    install_node_dnf
   elif have pacman; then
     sudo pacman -Sy --noconfirm nodejs npm
   else
