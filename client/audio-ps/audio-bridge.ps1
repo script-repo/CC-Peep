@@ -19,6 +19,12 @@ param(
   [string]$Name       = $(if ($env:CCPEEP_NAME) { $env:CCPEEP_NAME } else { "vm-$env:COMPUTERNAME" }),
   [ValidateSet("both", "out", "in")] [string]$Direction = "both",
   [int]$SampleRate    = 16000,
+  # Render endpoint to play the browser mic INTO (audio.in). With VB-CABLE installed,
+  # use "CABLE Input" so VM apps can read it back as a mic on "CABLE Output".
+  [string]$PlaybackDevice = $env:CCPEEP_PLAYBACK_DEVICE,
+  # Render endpoint to loopback-capture for audio.out. Point VM apps' speaker here
+  # (e.g. "Scream") so you can hear them without capturing the injected mic (no echo).
+  [string]$CaptureDevice  = $env:CCPEEP_CAPTURE_DEVICE,
   [string]$NAudioDll  = $env:CCPEEP_NAUDIO_DLL,
   [string]$NAudioVersion = "1.10.0"
 )
@@ -103,6 +109,7 @@ using NAudio.CoreAudioApi;
 public class CcPeepAudioBridge
 {
     private readonly string _portal, _session, _name, _direction;
+    private readonly string _playbackDevice, _captureDevice;
     private readonly int _outRate;
     private ClientWebSocket _ws;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
@@ -111,9 +118,29 @@ public class CcPeepAudioBridge
     private WaveOutEvent _output;
     private BufferedWaveProvider _playBuffer;
 
-    public CcPeepAudioBridge(string portal, string session, string name, string direction, int outRate)
+    public CcPeepAudioBridge(string portal, string session, string name, string direction, int outRate, string playbackDevice, string captureDevice)
     {
         _portal = portal; _session = session; _name = name; _direction = direction; _outRate = outRate;
+        _playbackDevice = playbackDevice; _captureDevice = captureDevice;
+    }
+
+    private static MMDevice FindRender(string nameContains)
+    {
+        if (string.IsNullOrEmpty(nameContains)) return null;
+        var en = new MMDeviceEnumerator();
+        foreach (var d in en.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+            if (d.FriendlyName.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0) return d;
+        return null;
+    }
+
+    // Match a legacy waveOut device index by name (WaveOutEvent auto-resamples, so a
+    // 16k mono feed works into any endpoint without MediaFoundation).
+    private static int FindWaveOut(string nameContains)
+    {
+        if (string.IsNullOrEmpty(nameContains)) return -1;
+        for (int n = 0; n < WaveOut.DeviceCount; n++)
+            if (WaveOut.GetCapabilities(n).ProductName.IndexOf(nameContains, StringComparison.OrdinalIgnoreCase) >= 0) return n;
+        return -1;
     }
 
     public void Run()
@@ -175,7 +202,13 @@ public class CcPeepAudioBridge
 
     private void StartCapture()
     {
-        _capture = new WasapiLoopbackCapture();
+        MMDevice src = FindRender(_captureDevice);
+        if (src != null) { _capture = new WasapiLoopbackCapture(src); Log("audio.out loopback source: " + src.FriendlyName); }
+        else
+        {
+            if (!string.IsNullOrEmpty(_captureDevice)) Log("capture device '" + _captureDevice + "' not found; using default render endpoint.");
+            _capture = new WasapiLoopbackCapture();
+        }
         var f = _capture.WaveFormat;
         Log("capturing system audio: " + f.SampleRate + "Hz " + f.Channels + "ch " + f.BitsPerSample + "-bit -> " + _outRate + "Hz mono 16-bit");
         SendText("{\"type\":\"audio-format\",\"channel\":\"audio.out\",\"sampleRate\":" + _outRate + ",\"channels\":1,\"bits\":16}");
@@ -198,6 +231,9 @@ public class CcPeepAudioBridge
         _playBuffer.BufferDuration = TimeSpan.FromSeconds(5);
         _playBuffer.DiscardOnBufferOverflow = true;
         _output = new WaveOutEvent();
+        int dev = FindWaveOut(_playbackDevice);
+        if (dev >= 0) { _output.DeviceNumber = dev; Log("audio.in playback target: " + WaveOut.GetCapabilities(dev).ProductName); }
+        else if (!string.IsNullOrEmpty(_playbackDevice)) Log("playback device '" + _playbackDevice + "' not found; using default output endpoint.");
         _output.Init(_playBuffer);
         _output.Play();
         Log("playback ready: " + _outRate + "Hz mono 16-bit (audio.in)");
@@ -292,7 +328,9 @@ Write-Step "Compiling audio engine (Add-Type)..."
 Add-Type -TypeDefinition $cs -ReferencedAssemblies $naudio, "System.dll" -ErrorAction Stop
 
 Write-Ok "Engine ready. Portal=$Portal Session=$Session Name=$Name Direction=$Direction Rate=$SampleRate"
+if ($PlaybackDevice) { Write-Ok "audio.in  -> playback device matching '$PlaybackDevice'" }
+if ($CaptureDevice)  { Write-Ok "audio.out <- loopback device matching '$CaptureDevice'" }
 Write-Host "    Press Ctrl+C to stop." -ForegroundColor DarkGray
 
-$bridge = New-Object CcPeepAudioBridge($Portal, $Session, $Name, $Direction, $SampleRate)
+$bridge = New-Object CcPeepAudioBridge($Portal, $Session, $Name, $Direction, $SampleRate, $PlaybackDevice, $CaptureDevice)
 $bridge.Run()

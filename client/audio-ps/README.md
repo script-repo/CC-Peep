@@ -28,6 +28,11 @@ Or via the installer: `-$env:CCPEEP_AUDIO = "1"` before running `install.ps1`.
 | `-Name`       | `vm-<COMPUTERNAME>`    | display name                              |
 | `-Direction`  | `both`                 | `out` (VM→browser), `in` (browser→VM)     |
 | `-SampleRate` | `16000`                | relay PCM sample rate (mono, 16-bit)      |
+| `-PlaybackDevice` | default endpoint   | render device name to play `audio.in` into (e.g. `CABLE Input`) |
+| `-CaptureDevice`  | default endpoint   | render device name to loopback for `audio.out` (e.g. `Scream`)  |
+
+`-PlaybackDevice`/`-CaptureDevice` match on a substring of the device name, so the bridge
+can target specific endpoints instead of the system default.
 
 ## How it works
 
@@ -70,3 +75,27 @@ device by any of:
 
 The bridge tries to start the `Audiosrv` service automatically (run as Administrator),
 but a device must still exist.
+
+## Make the browser mic a microphone for VM apps (full duplex)
+
+Scream only provides a *playback* device, so apps in the VM can't read the browser mic
+as an input. For that, install **VB-CABLE**, which exposes a linked pair: `CABLE Input`
+(playback) and `CABLE Output` (a *recording* device / virtual mic).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File client\scripts\install-virtual-audio.ps1 -Driver VBCable
+```
+
+Then wire it up:
+
+- In the VM app, set its **microphone** to `CABLE Output (VB-Audio Virtual Cable)`.
+- Set the VM app's **speaker** to **Scream** (so its output can be looped to the browser).
+- Run the bridge targeting both devices (no echo, since the loopback source differs from
+  the mic-injection sink):
+
+```powershell
+audio-bridge.ps1 -Portal wss://HOST:8080/ws -Session lab -PlaybackDevice "CABLE Input" -CaptureDevice Scream
+```
+
+Result: browser mic → `CABLE Input` → `CABLE Output` → VM app's mic; VM app audio →
+Scream → loopback → browser.
