@@ -33,8 +33,19 @@ $env:CCPEEP_PORTAL = "ws://YOUR-LINUX-HOST:8080/ws"; powershell -ExecutionPolicy
 curl -fsSL https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.sh | bash
 ```
 
-The installers ensure Node.js (+ git), fetch the repo, install dependencies, and
-start the component. The portal serves the web client at `http://<host>:8080/`.
+**Linux client (audio bridge on the machine whose audio you want):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/script-repo/CC-Peep/main/install-client.sh | \
+  CCPEEP_PORTAL=wss://YOUR-HOST:8080/ws CCPEEP_ALSA=1 CCPEEP_RUN=1 bash
+```
+
+The installers ensure Node.js (+ git/ffmpeg), fetch the repo, install dependencies, and
+start the component. The portal serves the web client at `http://<host>:8080/`. The
+Linux client installer falls back to portable Node / static ffmpeg on distros that lack
+them, can load the ALSA loopback (`CCPEEP_ALSA=1`), and can install a `systemd` service
+(`CCPEEP_SERVICE=1`). The Windows installer can auto-install a virtual audio device with
+`$env:CCPEEP_VIRTUAL_AUDIO = "scream" | "vbcable" | "both"`.
 
 ### HTTPS (required for browser microphone)
 
@@ -96,6 +107,16 @@ It captures a PulseAudio/PipeWire source (default: the default sink monitor) and
 the browser mic into a sink. For a headless box, create virtual devices first with
 `client/scripts/setup-linux-audio.sh`. See
 [`client/audio-linux/README.md`](client/audio-linux/README.md).
+
+## Switchboard (routing)
+
+The portal also serves a **3D patchbay** at `/switchboard.html` (linked from the main
+page). Each peer in the session gets an **IN** and **OUT** jack; you have a **MIC** and
+**SPK** jack. Drag a patch cable from your MIC to a peer's IN to send your audio there,
+and from a peer's OUT to your SPK to hear it — top rail sends, bottom rail receives. Drag
+a plugged end off its jack to unplug. Patching emits a `route` message and the portal
+relays audio only along patched links (`outTargets`/`inSources`); with nothing patched a
+peer defaults to the full mesh.
 
 ## Status
 
