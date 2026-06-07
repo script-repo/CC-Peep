@@ -6,16 +6,18 @@ devices to the web client.
 
 ## Single-line install (Windows PowerShell)
 
-Run from an elevated PowerShell on the Windows VM:
+Run from an elevated PowerShell on the Windows VM. The `[Net.ServicePointManager]`
+line forces TLS 1.2 **before** the download; older Windows (Server 2012 R2) defaults
+to TLS 1.0, which GitHub rejects (*"Could not create SSL/TLS secure channel"*):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1 | iex"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex (irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1)
 ```
 
 Set the portal host first (otherwise the installer prompts for it):
 
 ```powershell
-$env:CCPEEP_PORTAL = "ws://YOUR-LINUX-HOST:8080/ws"; powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1 | iex"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $env:CCPEEP_PORTAL = "ws://YOUR-LINUX-HOST:8080/ws"; iex (irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1)
 ```
 
 The installer ensures Node.js is present (via `winget`), clones the repo to

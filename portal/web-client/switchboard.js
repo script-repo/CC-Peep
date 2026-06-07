@@ -170,7 +170,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b0f17);
 const camera = new THREE.PerspectiveCamera(45, 2, 0.1, 100);
-camera.position.set(0, -1.5, 20);
+camera.position.set(0, -1.0, 23);
 camera.lookAt(0, 0, 0);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -186,7 +186,7 @@ const railTop = new THREE.Mesh(new THREE.BoxGeometry(21, 0.08, 0.1), new THREE.M
 railTop.position.set(0, 3.05, -0.05); scene.add(railTop);
 const railBot = railTop.clone(); railBot.position.y = -3.05; scene.add(railBot);
 
-const JACK = { mic: { x: -9, y: 3, type: "mic" }, spk: { x: -9, y: -3, type: "spk" } };
+const JACK = { mic: { x: -7.5, y: 3, type: "mic" }, spk: { x: -7.5, y: -3, type: "spk" } };
 const SNAP = 1.2;
 const PALETTE = [0xef4444, 0xf59e0b, 0x10b981, 0x3b82f6, 0xa855f7, 0xec4899, 0x22d3ee, 0xeab308];
 
@@ -194,15 +194,24 @@ const jacks = new Map(); // id -> {id, type, peerId, pos:Vector3, mesh, ledMesh}
 const cables = [];       // {kind:'send'|'recv', peerId, aJackId, bJackId|null, complete, group, color, free:Vector3}
 let dragging = null;     // {cable, end:'b', }
 
-function makeLabel(text, color = "#cbd5e1", size = 44) {
-  const c = document.createElement("canvas"); c.width = 256; c.height = 64;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = color; ctx.font = `${size}px system-ui, sans-serif`;
+// Build a crisp text sprite sized to fit the text (no clipping/overlap), rendered
+// on top of the panel. World height is fixed; width follows the measured text.
+function makeLabel(text, color = "#dbe3ef", size = 48, worldH = 0.62) {
+  const font = `600 ${size}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const c = document.createElement("canvas");
+  let ctx = c.getContext("2d");
+  ctx.font = font;
+  const pad = 18;
+  c.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
+  c.height = size + pad * 2;
+  ctx = c.getContext("2d");
+  ctx.font = font; ctx.fillStyle = color;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 32);
-  const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-  spr.scale.set(3.2, 0.8, 1);
+  ctx.fillText(text, c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4; tex.minFilter = THREE.LinearFilter;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  spr.scale.set(worldH * (c.width / c.height), worldH, 1);
+  spr.renderOrder = 20;
   return spr;
 }
 
@@ -217,7 +226,12 @@ function addJack(id, type, x, y, peerId, labelText) {
     new THREE.MeshStandardMaterial({ color: 0x10240f, emissive: 0x0a3d0a, emissiveIntensity: 0 }));
   led.position.set(0.0, 0.62, 0.05);
   g.add(ring, hole, led);
-  if (labelText) { const l = makeLabel(labelText); l.position.set(0, type === "mic" || type === "pin" ? 1.15 : -1.05, 0.1); g.add(l); }
+  if (labelText) {
+    const top = type === "mic" || type === "pin";
+    const l = makeLabel(labelText);
+    l.position.set(0, top ? 1.0 : -1.0, 0.2);
+    g.add(l);
+  }
   scene.add(g);
   const pos = new THREE.Vector3(x, y, 0.1);
   jacks.set(id, { id, type, peerId, pos, mesh: ring, group: g, led });
@@ -238,13 +252,15 @@ function rebuildPeerJacks() {
 
   addJack("mic", "mic", JACK.mic.x, JACK.mic.y, null, "YOUR MIC");
   addJack("spk", "spk", JACK.spk.x, JACK.spk.y, null, "YOUR SPK");
-  const sendLbl = makeLabel("SEND  >", "#9aa7bd", 36); sendLbl.position.set(-9, 4.2, 0.1); scene.add(sendLbl); railLabels.push(sendLbl);
-  const recvLbl = makeLabel("RECEIVE  <", "#9aa7bd", 36); recvLbl.position.set(-9, -4.2, 0.1); scene.add(recvLbl); railLabels.push(recvLbl);
+  const sendLbl = makeLabel("SEND \u25B8 your mic to peers", "#7f8da3", 40, 0.5);
+  sendLbl.position.set(-6, 5.3, 0.2); scene.add(sendLbl); railLabels.push(sendLbl);
+  const recvLbl = makeLabel("RECEIVE \u25C2 peers to your speaker", "#7f8da3", 40, 0.5);
+  recvLbl.position.set(-5.5, -5.3, 0.2); scene.add(recvLbl); railLabels.push(recvLbl);
 
   const n = peers.length;
   peers.forEach((p, i) => {
-    const x = n <= 1 ? 2 : (-4 + i * (13 / (n - 1)));
-    const short = (p.name || p.peerId).slice(0, 14);
+    const x = n <= 1 ? 2.5 : (-2.5 + i * (9.5 / (n - 1)));
+    const short = (p.name || p.peerId).slice(0, 22);
     addJack("pin:" + p.peerId, "pin", x, 3, p.peerId, short);
     addJack("pout:" + p.peerId, "pout", x, -3, p.peerId, null);
     // restore previous patch state, or default to connected (both) for new peers.
@@ -414,12 +430,14 @@ function onPointerUp(ev) {
     cable.kind = kind; cable.peerId = peerId; cable.bJackId = target.id; cable.complete = true;
     setLed(cable.aJackId, true); setLed(cable.bJackId, true);
     redrawCable(cable);
-    pushRoutes();
   } else {
-    removeCable(cable); // dropped on nothing -> discard
+    removeCable(cable); // dropped on nothing -> unplug
   }
   dragging = null;
   canvas.style.cursor = "default";
+  // Always re-publish routing after any patch change (plug OR unplug), otherwise
+  // the portal keeps relaying audio for links the operator just pulled.
+  pushRoutes();
 }
 
 canvas.addEventListener("pointerdown", onPointerDown);

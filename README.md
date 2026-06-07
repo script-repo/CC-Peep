@@ -21,10 +21,13 @@ client ───────┐                                  ┌── brows
 
 ## Single-line install
 
-**Windows VM (client):** run in PowerShell. Set the portal endpoint first.
+**Windows VM (client):** run in PowerShell. Set the portal endpoint first. The
+`[Net.ServicePointManager]` line forces TLS 1.2 **before** the download — older
+Windows (Server 2012 R2) defaults to TLS 1.0, which `raw.githubusercontent.com`
+rejects with *"Could not create SSL/TLS secure channel"*.
 
 ```powershell
-$env:CCPEEP_PORTAL = "ws://YOUR-LINUX-HOST:8080/ws"; powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1 | iex"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $env:CCPEEP_PORTAL = "ws://YOUR-LINUX-HOST:8080/ws"; iex (irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1)
 ```
 
 **Linux host (portal):**
@@ -110,13 +113,14 @@ the browser mic into a sink. For a headless box, create virtual devices first wi
 
 ## Switchboard (routing)
 
-The portal also serves a **3D patchbay** at `/switchboard.html` (linked from the main
-page). Each peer in the session gets an **IN** and **OUT** jack; you have a **MIC** and
-**SPK** jack. Drag a patch cable from your MIC to a peer's IN to send your audio there,
-and from a peer's OUT to your SPK to hear it — top rail sends, bottom rail receives. Drag
-a plugged end off its jack to unplug. Patching emits a `route` message and the portal
-relays audio only along patched links (`outTargets`/`inSources`); with nothing patched a
-peer defaults to the full mesh.
+The portal's **home page** (`/`) is a **3D patchbay**; a simpler list-style client lives
+at `/classic.html`. Each peer in the session gets an **IN** and **OUT** jack; you have a
+**MIC** and **SPK** jack. Drag a patch cable from your MIC to a peer's IN to send your
+audio there, and from a peer's OUT to your SPK to hear it — top rail sends, bottom rail
+receives. Drag a plugged end off its jack to unplug. Every patch change (plug **or**
+unplug) emits a `route` message and the portal relays audio only along patched links
+(`outTargets`/`inSources`). A peer that has never sent a `route` (e.g. the VM/Linux
+bridges) defaults to the full mesh; the operator's own links are governed by the cables.
 
 ## Status
 
