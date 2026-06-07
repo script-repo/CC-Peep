@@ -240,7 +240,14 @@ if ($env:CCPEEP_AUDIO -eq "1") {
   Write-Host "    Restart later with:" -ForegroundColor DarkGray
   Write-Host "    powershell -ExecutionPolicy Bypass -File `"$audioBridge`" -Portal $portal" -ForegroundColor DarkGray
   Write-Host ""
-  & powershell -ExecutionPolicy Bypass -File $audioBridge -Portal $portal -Session $env:CCPEEP_SESSION -Name $env:CCPEEP_NAME
+  # Only forward args that are set; the bridge defaults Session=lab and Name=vm-<host>.
+  # Passing an empty -Session would trigger "Missing an argument for parameter 'Session'".
+  $bridgeArgs = @("-ExecutionPolicy", "Bypass", "-File", $audioBridge, "-Portal", $portal)
+  if ($env:CCPEEP_SESSION)        { $bridgeArgs += @("-Session", $env:CCPEEP_SESSION) }
+  if ($env:CCPEEP_NAME)           { $bridgeArgs += @("-Name", $env:CCPEEP_NAME) }
+  if ($env:CCPEEP_PLAYBACK_DEVICE){ $bridgeArgs += @("-PlaybackDevice", $env:CCPEEP_PLAYBACK_DEVICE) }
+  if ($env:CCPEEP_CAPTURE_DEVICE) { $bridgeArgs += @("-CaptureDevice", $env:CCPEEP_CAPTURE_DEVICE) }
+  & powershell @bridgeArgs
   return
 }
 
