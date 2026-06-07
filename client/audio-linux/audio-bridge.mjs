@@ -58,6 +58,8 @@ const cfg = {
   // Echo mode: return received audio.in frames straight back as audio.out. No audio
   // devices needed - use it to test the browser <-> portal <-> client path end to end.
   loopback: args.loopback !== undefined || process.env.CCPEEP_LOOPBACK === "1",
+  // ffmpeg binary (installer may ship a static build outside PATH).
+  ffmpeg: args.ffmpeg || process.env.CCPEEP_FFMPEG || "ffmpeg",
 };
 
 const RECONNECT_MS = 3000;
@@ -80,7 +82,7 @@ function startCapture() {
   // ALSA loopback devices must be opened at the exact rate/format, so fix input params.
   if (cfg.captureFormat === "alsa") a.push("-ar", String(cfg.rate), "-ac", "1");
   a.push("-i", cfg.captureSource, "-ac", "1", "-ar", String(cfg.rate), "-f", "s16le", "-");
-  capture = spawn("ffmpeg", a);
+  capture = spawn(cfg.ffmpeg, a);
   log(`audio.out capturing '${cfg.captureSource}' -> ${cfg.rate}Hz mono 16-bit`);
   sendText(audioFormat({ channel: AudioChannel.OUT, sampleRate: cfg.rate, channels: 1, bits: 16 }));
   capture.stdout.on("data", (chunk) => {
@@ -98,7 +100,7 @@ function startPlayback() {
     "-f", "s16le", "-ar", String(cfg.rate), "-ac", "1", "-i", "-",
     "-f", cfg.playbackFormat, cfg.playbackSink,
   ];
-  playback = spawn("ffmpeg", a);
+  playback = spawn(cfg.ffmpeg, a);
   log(`audio.in playback -> sink '${cfg.playbackSink}' (${cfg.rate}Hz mono 16-bit)`);
   playback.stderr.on("data", (d) => log("ffmpeg(playback):", d.toString().trim()));
   playback.on("error", (e) => log("audio.in failed to start ffmpeg:", e.message));

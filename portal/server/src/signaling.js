@@ -16,7 +16,7 @@ import {
   error,
 } from "../../../shared/protocol.js";
 
-/** @typedef {{ peerId: string, role: string, name: string, send: (obj: object) => void, sendBinary: (buf: Buffer) => void }} Peer */
+/** @typedef {{ peerId: string, role: string, name: string, send: (obj: object) => void, sendBinary: (buf: Buffer) => void, outTargets: Set<string>|null, inSources: Set<string>|null }} Peer */
 
 export class SignalingHub {
   constructor({ logger = console } = {}) {
@@ -52,9 +52,12 @@ export class SignalingHub {
           this.#onSignal({ peerId, sessionId, msg, send });
           break;
         case MessageType.AUDIO_FORMAT:
-          // Stamp the sender and fan out to the other peers in the session.
+          // Stamp the sender and fan out to the routed peers in the session.
           this.#relayToOthers(sessionId, peerId, (peer) =>
             peer.send(audioFormat({ ...msg, from: peerId })));
+          break;
+        case MessageType.ROUTE:
+          this.#onRoute({ peerId, sessionId, msg });
           break;
         default:
           send(error({ code: "unknown_type", message: `Unknown message type: ${msg.type}` }));
@@ -88,7 +91,8 @@ export class SignalingHub {
 
     if (!this.sessions.has(sessionId)) this.sessions.set(sessionId, new Map());
     const peers = this.sessions.get(sessionId);
-    peers.set(peerId, { peerId, role, name, send, sendBinary });
+    // outTargets/inSources null = "all" (default full mesh) until the peer routes.
+    peers.set(peerId, { peerId, role, name, send, sendBinary, outTargets: null, inSources: null });
 
     this.logger.info(`[hub] peer join  session=${sessionId} peer=${peerId} role=${role}`);
     send(welcome({ peerId, sessionId }));
@@ -111,13 +115,38 @@ export class SignalingHub {
     target.send(signal({ to: msg.to, from: peerId, kind: msg.kind, data: msg.data }));
   }
 
-  // Invoke fn for every peer in the session except the sender.
+  // Update a peer's routing. A field that is null/absent means "all" (default mesh).
+  #onRoute({ peerId, sessionId, msg }) {
+    if (!sessionId) return;
+    const peers = this.sessions.get(sessionId);
+    const peer = peers && peers.get(peerId);
+    if (!peer) return;
+    const toSet = (v) => (Array.isArray(v) ? new Set(v) : null);
+    if ("outTargets" in msg) peer.outTargets = toSet(msg.outTargets);
+    if ("inSources" in msg) peer.inSources = toSet(msg.inSources);
+    this.logger.info(
+      `[hub] route     session=${sessionId} peer=${peerId} ` +
+      `out=${peer.outTargets ? [...peer.outTargets].length : "all"} ` +
+      `in=${peer.inSources ? [...peer.inSources].length : "all"}`);
+  }
+
+  // A frame from src reaches dst only if the source allows the destination AND the
+  // destination allows the source. null sets mean "all" (default full mesh).
+  #canRoute(src, dst) {
+    if (src.outTargets && !src.outTargets.has(dst.peerId)) return false;
+    if (dst.inSources && !dst.inSources.has(src.peerId)) return false;
+    return true;
+  }
+
+  // Invoke fn for every routable peer in the session except the sender.
   #relayToOthers(sessionId, fromPeerId, fn) {
     if (!sessionId) return;
     const peers = this.sessions.get(sessionId);
     if (!peers) return;
+    const src = peers.get(fromPeerId);
+    if (!src) return;
     for (const peer of peers.values()) {
-      if (peer.peerId !== fromPeerId) fn(peer);
+      if (peer.peerId !== fromPeerId && this.#canRoute(src, peer)) fn(peer);
     }
   }
 

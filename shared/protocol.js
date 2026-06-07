@@ -25,6 +25,11 @@ export const MessageType = Object.freeze({
   // client -> server -> clients: describes the PCM format of the binary audio frames
   // that follow on this connection (sample rate / channels / bit depth)
   AUDIO_FORMAT: "audio-format",
+  // client -> server: declare this peer's audio routing. `outTargets` = peerIds this
+  // peer sends its audio to; `inSources` = peerIds it wants to hear. null/omitted means
+  // "all" (default full mesh). The server relays src->dst only when the sender allows
+  // the destination AND the destination allows the source.
+  ROUTE: "route",
   // server -> clients: a peer left
   BYE: "bye",
   // server -> client: protocol/usage error
@@ -95,6 +100,16 @@ export function signal({ to, from, kind, data }) {
  */
 export function audioFormat({ channel, sampleRate, channels, bits, from }) {
   return { type: MessageType.AUDIO_FORMAT, channel, sampleRate, channels, bits, from };
+}
+
+/**
+ * Declare this peer's audio routing. Omit a field (or pass null) to mean "all".
+ * @param {object} a
+ * @param {string[]|null} [a.outTargets] - peerIds this peer sends audio to
+ * @param {string[]|null} [a.inSources]  - peerIds this peer wants to receive audio from
+ */
+export function route({ outTargets = null, inSources = null } = {}) {
+  return { type: MessageType.ROUTE, outTargets, inSources };
 }
 
 export function bye({ peerId }) {

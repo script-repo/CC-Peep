@@ -14,6 +14,13 @@
 #   $env:CCPEEP_SERVICE = "0"        # run once in the foreground (no prompt)
 #   $env:CCPEEP_AUDIO   = "1"        # after install, start the NAudio audio bridge
 #                                    # (stream VM system audio + mic over the relay)
+#   $env:CCPEEP_VIRTUAL_AUDIO = "scream" | "vbcable" | "both"
+#                                    # install a virtual audio device first (headless VMs
+#                                    # have none). vbcable adds a recording device (a mic
+#                                    # for VM apps); needs an elevated session.
+#   $env:CCPEEP_PLAYBACK_DEVICE / $env:CCPEEP_CAPTURE_DEVICE
+#                                    # route audio.in / audio.out to named devices
+#                                    # (e.g. "CABLE Input" / "Scream"); read by the bridge.
 
 $ErrorActionPreference = "Stop"
 
@@ -204,6 +211,26 @@ Ensure-Node
 Get-Source
 $clientDir = Install-Client
 $audioBridge = Join-Path $clientDir "audio-ps\audio-bridge.ps1"
+$virtualAudio = Join-Path $clientDir "scripts\install-virtual-audio.ps1"
+
+# Optionally install a virtual audio device (headless VMs have none). Runs the bundled
+# installer once per requested driver. Requires an elevated session for the driver.
+if ($env:CCPEEP_VIRTUAL_AUDIO) {
+  $drivers = switch ($env:CCPEEP_VIRTUAL_AUDIO.ToLower()) {
+    "both"    { @("Scream", "VBCable") }
+    "vbcable" { @("VBCable") }
+    "scream"  { @("Scream") }
+    default   { @() }
+  }
+  foreach ($d in $drivers) {
+    Write-Step "Installing virtual audio device: $d…"
+    try {
+      & powershell -ExecutionPolicy Bypass -File $virtualAudio -Driver $d
+    } catch {
+      Write-Warn "Virtual audio ($d) install failed ($($_.Exception.Message)); run install-virtual-audio.ps1 from an elevated prompt."
+    }
+  }
+}
 
 # Audio bridge mode: stream VM audio to/from the portal (NAudio over the WS relay).
 if ($env:CCPEEP_AUDIO -eq "1") {
