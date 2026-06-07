@@ -1,4 +1,4 @@
-# CC-Peep — Windows client single-line installer.
+# CC-Peep - Windows client single-line installer.
 #
 #   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/script-repo/CC-Peep/main/install.ps1 | iex"
 #
@@ -53,7 +53,7 @@ function Update-PathFromRegistry {
 
 # Extract a zip into $destDir. Prefer Expand-Archive (PS 5+), then the synchronous
 # .NET ZipFile API (.NET 4.5+, available on PowerShell 4), then Shell COM as a last
-# resort — COM's CopyHere is async, so wait for it to finish before returning.
+# resort - COM's CopyHere is async, so wait for it to finish before returning.
 function Expand-Zip($zipPath, $destDir) {
   if (Test-Command "Expand-Archive") {
     if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
@@ -82,7 +82,7 @@ function Expand-Zip($zipPath, $destDir) {
 }
 
 function Install-WithWinget($id, $label) {
-  Write-Step "Installing $label via winget…"
+  Write-Step "Installing $label via winget..."
   winget install --id $id -e --silent --accept-source-agreements --accept-package-agreements | Out-Null
   Update-PathFromRegistry
 }
@@ -99,12 +99,12 @@ function Install-NodePortable {
   # Get-Source wipes on refresh). %LOCALAPPDATA% always exists.
   $target = Join-Path $env:LOCALAPPDATA "cc-peep-node"
 
-  Write-Step "Downloading portable Node.js $NodeVersion ($arch)…"
+  Write-Step "Downloading portable Node.js $NodeVersion ($arch)..."
   if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
   Invoke-WebRequest -Uri $url -OutFile $zip
   Expand-Zip $zip $tmp
 
-  # Don't assume the archive's folder layout — locate node.exe and take its directory.
+  # Don't assume the archive's folder layout - locate node.exe and take its directory.
   $nodeExe = Get-ChildItem -Path $tmp -Filter node.exe -Recurse -ErrorAction SilentlyContinue |
     Select-Object -First 1
   if (-not $nodeExe) {
@@ -142,11 +142,11 @@ function Ensure-Node {
 function Get-Source {
   if (Test-Command "git") {
     if (Test-Path (Join-Path $InstallDir ".git")) {
-      Write-Step "Updating existing checkout at $InstallDir…"
+      Write-Step "Updating existing checkout at $InstallDir..."
       git -C $InstallDir fetch --depth 1 origin $Branch | Out-Null
       git -C $InstallDir reset --hard "origin/$Branch" | Out-Null
     } else {
-      Write-Step "Cloning $Repo -> $InstallDir…"
+      Write-Step "Cloning $Repo -> $InstallDir..."
       if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
       git clone --depth 1 --branch $Branch $Repo $InstallDir | Out-Null
     }
@@ -174,7 +174,7 @@ function Resolve-PortalUrl {
 
 function Install-Client {
   $clientDir = Join-Path $InstallDir "client"
-  Write-Step "Installing client dependencies…"
+  Write-Step "Installing client dependencies..."
   Push-Location $clientDir
   try {
     npm install --no-audit --no-fund | Out-Null
@@ -184,7 +184,7 @@ function Install-Client {
     $name    = if ($env:CCPEEP_NAME)    { $env:CCPEEP_NAME }    else { "vm-$env:COMPUTERNAME" }
 
     $config = [ordered]@{ portal = $portal; session = $session; name = $name }
-    # Write UTF-8 *without* BOM — Node's JSON.parse rejects a leading BOM, which would
+    # Write UTF-8 *without* BOM - Node's JSON.parse rejects a leading BOM, which would
     # silently discard the portal URL and fall back to localhost.
     $json = $config | ConvertTo-Json
     [System.IO.File]::WriteAllText(
@@ -197,7 +197,7 @@ function Install-Client {
 }
 
 Write-Host ""
-Write-Host "CC-Peep audio-agents — Windows client installer" -ForegroundColor White
+Write-Host "CC-Peep audio-agents - Windows client installer" -ForegroundColor White
 Write-Host "------------------------------------------------" -ForegroundColor DarkGray
 
 function Want-Service {
@@ -217,13 +217,13 @@ $virtualAudio = Join-Path $clientDir "scripts\install-virtual-audio.ps1"
 # installer once per requested driver. Requires an elevated session for the driver.
 if ($env:CCPEEP_VIRTUAL_AUDIO) {
   $drivers = switch ($env:CCPEEP_VIRTUAL_AUDIO.ToLower()) {
-    "both"    { @("Scream", "VBCable") }
+    "both"    { @("VBCable", "Scream") }
     "vbcable" { @("VBCable") }
     "scream"  { @("Scream") }
     default   { @() }
   }
   foreach ($d in $drivers) {
-    Write-Step "Installing virtual audio device: $d…"
+    Write-Step "Installing virtual audio device: $d..."
     try {
       & powershell -ExecutionPolicy Bypass -File $virtualAudio -Driver $d
     } catch {
@@ -236,7 +236,7 @@ if ($env:CCPEEP_VIRTUAL_AUDIO) {
 if ($env:CCPEEP_AUDIO -eq "1") {
   $portal = if ($env:CCPEEP_PORTAL) { $env:CCPEEP_PORTAL } else { "ws://localhost:8080/ws" }
   Write-Host ""
-  Write-Step "Starting audio bridge (Ctrl+C to stop)…"
+  Write-Step "Starting audio bridge (Ctrl+C to stop)..."
   Write-Host "    Restart later with:" -ForegroundColor DarkGray
   Write-Host "    powershell -ExecutionPolicy Bypass -File `"$audioBridge`" -Portal $portal" -ForegroundColor DarkGray
   Write-Host ""
@@ -250,14 +250,14 @@ Write-Host "    powershell -ExecutionPolicy Bypass -File `"$audioBridge`" -Porta
 Write-Host ""
 if (Want-Service) {
   $register = Join-Path $clientDir "scripts\register-task.ps1"
-  Write-Step "Registering background Scheduled Task…"
+  Write-Step "Registering background Scheduled Task..."
   $nodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
   & powershell -ExecutionPolicy Bypass -File $register -ClientDir $clientDir -NodePath $nodePath
   Write-Host ""
   Write-Host "    Agent installed as a background task. Remove with:" -ForegroundColor DarkGray
   Write-Host "    powershell -File `"$clientDir\scripts\unregister-task.ps1`"" -ForegroundColor DarkGray
 } else {
-  Write-Step "Starting the agent once in the foreground (Ctrl+C to stop)…"
+  Write-Step "Starting the agent once in the foreground (Ctrl+C to stop)..."
   Write-Host "    Restart later with:  node `"$clientDir\src\agent.js`"" -ForegroundColor DarkGray
   Write-Host ""
   node (Join-Path $clientDir "src\agent.js")

@@ -95,7 +95,12 @@ function Install-Scream {
   if ($bat) {
     Write-Step "Running installer: $($bat.Name)"
     Push-Location $bat.DirectoryName
-    try { cmd.exe /c "`"$($bat.FullName)`"" } finally { Pop-Location }
+    # Pipe empty stdin so a trailing `pause` in the batch cannot hang an unattended run.
+    try { "" | cmd.exe /c "`"$($bat.FullName)`"" } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warn "Scream's devcon step returned $LASTEXITCODE. On Server 2012 R2 this"
+      Write-Warn "often fails due to driver-signing. Prefer VB-CABLE: re-run with -Driver VBCable."
+    }
   } else {
     Write-Warn "Batch installer not found; falling back to pnputil."
     pnputil.exe -i -a "$($inf.FullName)"
