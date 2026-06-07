@@ -37,8 +37,11 @@ node audio-bridge.mjs --portal wss://10.42.156.41:8080/ws --session lab
 | `--name` / `CCPEEP_NAME` | `linux-<hostname>` | display name |
 | `--direction` / `CCPEEP_DIRECTION` | `both` | `out` (Linux→browser), `in` (browser→Linux) |
 | `--rate` / `CCPEEP_RATE` | `16000` | relay sample rate (mono, 16-bit) |
-| `--capture-source` / `CCPEEP_CAPTURE_SOURCE` | `@DEFAULT_MONITOR@` | Pulse source for `audio.out` |
-| `--playback-sink` / `CCPEEP_PLAYBACK_SINK` | `@DEFAULT_SINK@` | Pulse sink for `audio.in` |
+| `--capture-source` / `CCPEEP_CAPTURE_SOURCE` | `@DEFAULT_MONITOR@` | source for `audio.out` |
+| `--playback-sink` / `CCPEEP_PLAYBACK_SINK` | `@DEFAULT_SINK@` | sink for `audio.in` |
+| `--capture-format` / `CCPEEP_CAPTURE_FORMAT` | `pulse` | ffmpeg input backend (`pulse` or `alsa`) |
+| `--playback-format` / `CCPEEP_PLAYBACK_FORMAT` | `pulse` | ffmpeg output backend (`pulse` or `alsa`) |
+| `--loopback` / `CCPEEP_LOOPBACK=1` | off | echo `audio.in` back as `audio.out` (no devices) |
 
 `@DEFAULT_MONITOR@` captures whatever is playing on the default sink. For a self-signed
 `wss://` portal the bridge accepts the cert unless `CCPEEP_TLS_STRICT=1`.
@@ -65,12 +68,45 @@ In your Linux app: set **output → CCPeep-Out** and **microphone → CCPeep-Mic
 browser mic → `ccpeep_in` → `ccpeep_mic` → app's mic; app audio → `ccpeep_out` → loopback
 → browser. Remove the devices with `setup-linux-audio.sh --unload`.
 
-## Quick self-test (hear your own voice)
+## Testing on a headless VM (no sound card)
+
+A headless server usually has **no PulseAudio/PipeWire daemon and no sink**, so the
+defaults fail with `@DEFAULT_MONITOR@: No such process` / `Cannot connect context:
+Access denied`. Test in this order.
+
+### 1. Echo mode — proves the path with zero audio drivers
 
 ```bash
-node audio-bridge.mjs --portal wss://HOST:8080/ws --session lab \
-  --capture-source ccpeep_in.monitor --playback-sink ccpeep_in
+node audio-bridge.mjs --portal wss://HOST:8080/ws --session lab --loopback
 ```
 
-Open the portal in a browser, join the same session, start the mic, and speak — your
-voice loops back through the Linux box, proving the full path.
+The client returns every `audio.in` frame straight back as `audio.out` — no ffmpeg, no
+devices. In the browser: join the same session, **Start microphone & audio**, and speak.
+You should hear yourself (browser → portal → client → portal → browser). If this works,
+the relay and browser audio are correct and only the OS audio backend remains.
+
+### 2. Real devices via ALSA loopback (no daemon needed)
+
+Load the kernel loopback module, then use the `alsa` backend. Audio written to
+`hw:Loopback,0,N` is readable from `hw:Loopback,1,N`.
+
+```bash
+sudo modprobe snd-aloop
+# persist across reboots (optional):
+echo snd-aloop | sudo tee /etc/modules-load.d/snd-aloop.conf
+
+# self-test: play browser mic into Loopback,0,0 and capture it back from Loopback,1,0
+node audio-bridge.mjs --portal wss://HOST:8080/ws --session lab \
+  --capture-format alsa --capture-source hw:Loopback,1,0 \
+  --playback-format alsa --playback-sink hw:Loopback,0,0
+```
+
+Speak in the browser — you hear yourself, now routed through a real kernel audio device.
+For app integration: an app plays to `hw:Loopback,0,1` (you capture `hw:Loopback,1,1`
+for `audio.out`) and reads `hw:Loopback,1,0` as its mic (you play to `hw:Loopback,0,0`).
+
+### 3. Real devices via PulseAudio null sinks
+
+If you prefer Pulse/PipeWire, run `client/scripts/setup-linux-audio.sh` (needs a running
+user Pulse/PipeWire session) and use `--capture-source ccpeep_out.monitor
+--playback-sink ccpeep_in` as shown above.

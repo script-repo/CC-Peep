@@ -52,6 +52,12 @@ const cfg = {
   // @DEFAULT_MONITOR@ = the monitor of the default sink (captures what is playing).
   captureSource: args["capture-source"] || process.env.CCPEEP_CAPTURE_SOURCE || "@DEFAULT_MONITOR@",
   playbackSink: args["playback-sink"] || process.env.CCPEEP_PLAYBACK_SINK || "@DEFAULT_SINK@",
+  // ffmpeg input/output backend: "pulse" (default) or "alsa" (e.g. hw:Loopback,1,0).
+  captureFormat: args["capture-format"] || process.env.CCPEEP_CAPTURE_FORMAT || "pulse",
+  playbackFormat: args["playback-format"] || process.env.CCPEEP_PLAYBACK_FORMAT || "pulse",
+  // Echo mode: return received audio.in frames straight back as audio.out. No audio
+  // devices needed - use it to test the browser <-> portal <-> client path end to end.
+  loopback: args.loopback !== undefined || process.env.CCPEEP_LOOPBACK === "1",
 };
 
 const RECONNECT_MS = 3000;
@@ -68,13 +74,12 @@ function sendText(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-// audio.out: capture a Pulse source -> mono s16le @rate -> binary frames to the portal.
+// audio.out: capture a source -> mono s16le @rate -> binary frames to the portal.
 function startCapture() {
-  const a = [
-    "-hide_banner", "-loglevel", "error", "-nostdin",
-    "-f", "pulse", "-i", cfg.captureSource,
-    "-ac", "1", "-ar", String(cfg.rate), "-f", "s16le", "-",
-  ];
+  const a = ["-hide_banner", "-loglevel", "error", "-nostdin", "-f", cfg.captureFormat];
+  // ALSA loopback devices must be opened at the exact rate/format, so fix input params.
+  if (cfg.captureFormat === "alsa") a.push("-ar", String(cfg.rate), "-ac", "1");
+  a.push("-i", cfg.captureSource, "-ac", "1", "-ar", String(cfg.rate), "-f", "s16le", "-");
   capture = spawn("ffmpeg", a);
   log(`audio.out capturing '${cfg.captureSource}' -> ${cfg.rate}Hz mono 16-bit`);
   sendText(audioFormat({ channel: AudioChannel.OUT, sampleRate: cfg.rate, channels: 1, bits: 16 }));
@@ -91,7 +96,7 @@ function startPlayback() {
   const a = [
     "-hide_banner", "-loglevel", "error",
     "-f", "s16le", "-ar", String(cfg.rate), "-ac", "1", "-i", "-",
-    "-f", "pulse", cfg.playbackSink,
+    "-f", cfg.playbackFormat, cfg.playbackSink,
   ];
   playback = spawn("ffmpeg", a);
   log(`audio.in playback -> sink '${cfg.playbackSink}' (${cfg.rate}Hz mono 16-bit)`);
@@ -117,12 +122,21 @@ function connect() {
   ws.on("open", () => {
     log("connected; announcing presence as vm-agent");
     sendText(hello({ sessionId: cfg.session, role: Role.VM_AGENT, name: cfg.name }));
+    if (cfg.loopback) {
+      sendText(audioFormat({ channel: AudioChannel.OUT, sampleRate: cfg.rate, channels: 1, bits: 16 }));
+      log("loopback/echo mode: returning audio.in frames as audio.out (no audio devices used)");
+      return;
+    }
     if (cfg.direction !== "in") startCapture();
     if (cfg.direction !== "out") startPlayback();
   });
 
   ws.on("message", (data, isBinary) => {
     if (isBinary) {
+      if (cfg.loopback) {
+        if (ws.readyState === WebSocket.OPEN) ws.send(data, { binary: true });
+        return;
+      }
       if (playback && playback.stdin.writable) playback.stdin.write(data);
       return;
     }
